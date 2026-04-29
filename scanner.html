@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Network Scanner</title>
+<style>
+  body { font-family: Arial; background: #1a1a2e; color: #eee; padding: 15px; margin: 0; }
+  h1 { color: #4ade80; text-align: center; font-size: 22px; }
+  .card { background: #16213e; padding: 15px; border-radius: 10px; margin: 10px 0; }
+  .score { font-size: 48px; font-weight: bold; text-align: center; }
+  .good { color: #4ade80; }
+  .ok { color: #fbbf24; }
+  .bad { color: #ef4444; }
+  button { background: #4ade80; color: #000; border: none; padding: 15px 30px; 
+           font-size: 16px; border-radius: 8px; width: 100%; margin: 5px 0; font-weight: bold; }
+  .metric { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #333; }
+  #map { height: 300px; border-radius: 10px; margin-top: 10px; }
+  .log { max-height: 200px; overflow-y: auto; font-size: 12px; }
+</style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+</head>
+<body>
+
+<h1>📡 Smart Network Scanner</h1>
+
+<div class="card">
+  <div class="score" id="score">--</div>
+  <div style="text-align:center" id="rating">Press SCAN to start</div>
+</div>
+
+<button onclick="scan()">🔍 SCAN NOW</button>
+<button onclick="toggleAuto()" id="autoBtn">▶️ AUTO-SCAN (every 10s)</button>
+<button onclick="exportData()">💾 EXPORT DATA</button>
+<button onclick="clearData()" style="background:#ef4444">🗑️ CLEAR</button>
+
+<div class="card">
+  <div class="metric"><span>📶 Network Type</span><span id="netType">-</span></div>
+  <div class="metric"><span>⚡ Speed (est)</span><span id="speed">-</span></div>
+  <div class="metric"><span>⏱️ Latency</span><span id="latency">-</span></div>
+  <div class="metric"><span>📍 Location</span><span id="loc">-</span></div>
+  <div class="metric"><span>📊 Samples</span><span id="count">0</span></div>
+</div>
+
+<div class="card">
+  <b>🗺️ Quality Map</b>
+  <div id="map"></div>
+</div>
+
+<div class="card">
+  <b>📜 Recent Scans</b>
+  <div class="log" id="log"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+let data = JSON.parse(localStorage.getItem('netData') || '[]');
+let autoScan = null;
+let map, markersLayer;
+
+function initMap() {
+  map = L.map('map').setView([0, 0], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+  markersLayer = L.layerGroup().addTo(map);
+  redrawMap();
+}
+
+function redrawMap() {
+  markersLayer.clearLayers();
+  data.forEach(d => {
+    const color = d.score > 70 ? '#4ade80' : d.score > 40 ? '#fbbf24' : '#ef4444';
+    L.circleMarker([d.lat, d.lon], {
+      radius: 10, color: color, fillColor: color, fillOpacity: 0.7
+    }).bindPopup(`Score: ${d.score}<br>Speed: ${d.speed} Mbps<br>Ping: ${d.latency}ms`)
+      .addTo(markersLayer);
+  });
+  if (data.length > 0) {
+    const last = data[data.length - 1];
+    map.setView([last.lat, last.lon], 17);
+  }
+}
+
+async function measureLatency() {
+  const tries = 3;
+  let total = 0;
+  for (let i = 0; i < tries; i++) {
+    const start = performance.now();
+    try {
+      await fetch('https://www.google.com/favicon.ico?' + Math.random(), 
+                   { mode: 'no-cors', cache: 'no-store' });
+      total += performance.now() - start;
+    } catch(e) { total += 999; }
+  }
+  return Math.round(total / tries);
+}
+
+async function measureSpeed() {
+  // Download ~100KB image and time it
+  const url = 'https://httpbin.org/bytes/100000?' + Math.random();
+  const start = performance.now();
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    const blob = await res.blob();
+    const seconds = (performance.now() - start) / 1000;
+    const mbps = (blob.size * 8 / 1000000) / seconds;
+    return Math.round(mbps * 10) / 10;
+  } catch(e) { return 0; }
+}
+
+function getLocation() {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      e => reject(e),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+}
+
+function calcScore(speed, latency, netType) {
+  const speedScore = Math.min(100, speed * 10); // 10Mbps = 100
+  const latencyScore = Math.max(0, 100 - latency / 2);
+  let typeBonus = 50;
+  if (netType === '4g') typeBonus = 80;
+  if (netType === 'wifi') typeBonus = 90;
+  if (netType === '3g') typeBonus = 40;
+  if (netType === '2g') typeBonus = 15;
+  return Math.round(speedScore * 0.4 + latencyScore * 0.3 + typeBonus * 0.3);
+}
+
+async function scan() {
+  document.getElementById('rating').textContent = '⏳ Scanning...';
+  
+  try {
+    const loc = await getLocation();
+    const conn = navigator.connection || {};
+    const netType = conn.effectiveType || 'unknown';
+    const latency = await measureLatency();
+    const speed = await measureSpeed();
+    const score = calcScore(speed, latency, netType);
+
+    document.getElementById('netType').textContent = netType;
+    document.getElementById('speed').textContent = speed + ' Mbps';
+    document.getElementById('latency').textContent = latency + ' ms';
+    document.getElementById('loc').textContent = loc.lat.toFixed(4) + ', ' + loc.lon.toFixed(4);
+    
+    const scoreEl = document.getElementById('score');
+    scoreEl.textContent = score;
+    scoreEl.className = 'score ' + (score > 70 ? 'good' : score > 40 ? 'ok' : 'bad');
+    document.getElementById('rating').textContent = 
+      score > 70 ? '✅ Excellent Zone' : score > 40 ? '⚠️ Fair Zone' : '❌ Poor Zone';
+
+    const entry = { 
+      time: new Date().toLocaleTimeString(),
+      lat: loc.lat, lon: loc.lon, 
+      speed, latency, netType, score 
+    };
+    data.push(entry);
+    localStorage.setItem('netData', JSON.stringify(data));
+    
+    document.getElementById('count').textContent = data.length;
+    addLog(entry);
+    redrawMap();
+  } catch(e) {
+    document.getElementById('rating').textContent = '❌ Error: ' + e.message;
+  }
+}
+
+function addLog(e) {
+  const log = document.getElementById('log');
+  log.innerHTML = `<div>${e.time} | Score:${e.score} | ${e.speed}Mbps | ${e.latency}ms</div>` + log.innerHTML;
+}
+
+function toggleAuto() {
+  const btn = document.getElementById('autoBtn');
+  if (autoScan) {
+    clearInterval(autoScan);
+    autoScan = null;
+    btn.textContent = '▶️ AUTO-SCAN (every 10s)';
+  } else {
+    scan();
+    autoScan = setInterval(scan, 10000);
+    btn.textContent = '⏸️ STOP AUTO-SCAN';
+  }
+}
+
+function exportData() {
+  let csv = 'time,lat,lon,speed_mbps,latency_ms,netType,score\n';
+  data.forEach(d => {
+    csv += `${d.time},${d.lat},${d.lon},${d.speed},${d.latency},${d.netType},${d.score}\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'network_scan.csv';
+  a.click();
+}
+
+function clearData() {
+  if (confirm('Clear all data?')) {
+    data = [];
+    localStorage.removeItem('netData');
+    document.getElementById('count').textContent = 0;
+    document.getElementById('log').innerHTML = '';
+    redrawMap();
+  }
+}
+
+document.getElementById('count').textContent = data.length;
+data.slice(-10).forEach(addLog);
+initMap();
+</script>
+
+</body>
+</html>

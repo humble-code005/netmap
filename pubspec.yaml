@@ -1,0 +1,43 @@
+name: netmap
+description: "NetMap — A premium WiFi network scanner and analysis tool."
+publish_to: 'none'
+version: 2.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- WiFi Scanning ---
+  wifi_scan: ^0.4.1                 # Scan for nearby WiFi access points
+  permission_handler: ^11.3.1       # Request Android permissions (location, WiFi)
+  connectivity_plus: ^6.0.3         # Check current network connectivity status
+
+  # --- Charts & Visualization ---
+  fl_chart: ^0.69.0                 # Line charts, bar charts for signal/channel data
+
+  # --- Maps & Location ---
+  flutter_map: ^7.0.2               # OpenStreetMap-based map widget (free, no API key)
+  latlong2: ^0.9.1                  # Latitude/Longitude data types for mapping
+  geolocator: ^13.0.2               # GPS location services
+
+  # --- Local Database ---
+  sqflite: ^2.4.1                   # SQLite database for scan history & crowd data
+  path_provider: ^2.1.5             # Find local file paths for database storage
+
+  # --- Utilities ---
+  csv: ^6.0.0                       # Export scan history as CSV files
+  shared_preferences: ^2.3.4        # Store simple settings (theme, scan interval)
+  network_info_plus: ^6.1.1         # Get connected network info (IP, SSID, gateway)
+  http: ^1.2.2                      # HTTP client for speed test measurements
+  carrier_info: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
